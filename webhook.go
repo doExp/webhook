@@ -48,7 +48,7 @@ var cfg Config
 // --------------------------------------------------------------------------------
 
 func runScript(item *WatchItem) (err error) {
-	script := "./" + item.Script
+	script := item.Script
 	out, err := exec.Command("bash", "-c", script).Output()
 	if err != nil {
 		log.Printf("Exec command failed: %s\n", err)
@@ -61,6 +61,7 @@ func runScript(item *WatchItem) (err error) {
 func handleGithub(event Payload, cfg *Config) (err error) {
 	for _, item := range cfg.Items {
 		if event.Repo.Url == item.Repo && strings.Contains(event.Ref, item.Branch) {
+			log.Printf("triggered hook for %v at script %v", item.Repo, item.Script)
 			err = runScript(&item)
 			if err != nil {
 				log.Printf("run script error: %s\n", err)
@@ -90,15 +91,29 @@ func handleBitbucket(event Payload, cfg *Config) {
 
 func handle(w http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
-	decoder := json.NewDecoder(req.Body)
 
-	var event Payload
-	err := decoder.Decode(&event)
-	if err != nil {
-		log.Printf("payload json decode failed: %s\n", err)
-		return
-	}
+	contentType := req.Header.Get("content-type")
 
+  var event Payload
+
+  switch contentType {
+    case "application/x-www-form-urlencoded":
+      req.ParseForm()
+      payloadStr := req.Form.Get("payload")
+      err := json.Unmarshal([]byte(payloadStr), &event )
+      if err != nil {
+              log.Printf("payload json decode failed: \n%s\n", payloadStr)
+              return
+      }
+    case "application/json":
+      decoder := json.NewDecoder(req.Body)
+
+      err := decoder.Decode(&event)
+      if err != nil {
+              log.Printf("payload json decode failed: %s\n", err)
+              return
+      }
+  }
 	if event.CanonUrl == "https://bitbucket.org" {
 		handleBitbucket(event, &cfg)
 		return
